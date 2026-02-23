@@ -5,7 +5,7 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Sphere, Line, Sprite } from '@react-three/drei'; // removed unused useTexture
 import { createClient } from '@supabase/supabase-js';
 import * as THREE from 'three';
-import fabric from 'fabric'; // ✅ CORRECT: fabric exports a default object
+import { fabric } from 'fabric';   // ✅ Correct named import
 import { motion, AnimatePresence } from 'framer-motion';
 import { HexColorPicker } from 'react-colorful';
 import { 
