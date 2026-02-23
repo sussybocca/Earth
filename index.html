@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>MAP EARTH · robotic atlas</title>
     <style>
         body {
@@ -32,6 +32,7 @@
             left: 50%;
             transform: translateX(-50%);
             width: 600px;
+            max-width: 90vw;
             background: rgba(0, 10, 10, 0.95);
             border: 2px solid #ff00c1;
             box-shadow: 0 0 30px #ff00c1;
@@ -64,6 +65,7 @@
             background: #1a1a1a;
             cursor: crosshair;
             border: 2px solid #00ffc3;
+            touch-action: none; /* prevent scrolling while drawing */
         }
         .toolbar {
             display: flex;
@@ -325,6 +327,7 @@
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         function startDrawing(e) {
+            e.preventDefault(); // important for touch
             drawing = true;
             ctx.beginPath();
             const pos = getCanvasCoordinates(e);
@@ -343,7 +346,10 @@
             ctx.moveTo(pos.x, pos.y);
         }
 
-        function stopDrawing() { drawing = false; }
+        function stopDrawing(e) {
+            e?.preventDefault();
+            drawing = false;
+        }
 
         function getCanvasCoordinates(e) {
             const rect = canvas.getBoundingClientRect();
@@ -367,9 +373,10 @@
         canvas.addEventListener('mousemove', draw);
         canvas.addEventListener('mouseup', stopDrawing);
         canvas.addEventListener('mouseleave', stopDrawing);
-        canvas.addEventListener('touchstart', startDrawing);
-        canvas.addEventListener('touchmove', draw);
+        canvas.addEventListener('touchstart', startDrawing, { passive: false });
+        canvas.addEventListener('touchmove', draw, { passive: false });
         canvas.addEventListener('touchend', stopDrawing);
+        canvas.addEventListener('touchcancel', stopDrawing);
 
         document.getElementById('brush').addEventListener('click', () => {
             isErasing = false;
@@ -394,14 +401,28 @@
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
 
-        renderer.domElement.addEventListener('click', (event) => {
+        // Unified handler for both mouse and touch
+        function onEarthInteraction(event) {
+            // Prevent default to avoid zoom/scroll on touch
+            event.preventDefault();
+
             // Ignore if drawing panel is open
             if (document.getElementById('drawing-panel').classList.contains('active')) return;
 
-            // Calculate mouse position in normalized device coordinates
+            // Get client coordinates from either mouse or touch
+            let clientX, clientY;
+            if (event.touches) {
+                clientX = event.touches[0].clientX;
+                clientY = event.touches[0].clientY;
+            } else {
+                clientX = event.clientX;
+                clientY = event.clientY;
+            }
+
             const rect = renderer.domElement.getBoundingClientRect();
-            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            // Calculate mouse position in normalized device coordinates (-1 to +1)
+            mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
             raycaster.setFromCamera(mouse, camera);
             const intersects = raycaster.intersectObject(earthGroup.children[0]); // intersect the base sphere
@@ -421,7 +442,11 @@
                 document.getElementById('drawing-panel').classList.add('active');
                 controls.autoRotate = false; // pause rotation while drawing
             }
-        });
+        }
+
+        // Add both click and touchstart listeners
+        renderer.domElement.addEventListener('click', onEarthInteraction);
+        renderer.domElement.addEventListener('touchstart', onEarthInteraction, { passive: false });
 
         // --- Cancel drawing ---
         document.getElementById('cancel-draw').addEventListener('click', () => {
@@ -483,15 +508,11 @@
             const img = new Image();
             img.src = drawing_data;
             img.onload = () => {
-                const texture = new THREE.CanvasTexture(img); // img is an HTMLImageElement
+                const texture = new THREE.CanvasTexture(img);
                 texture.minFilter = THREE.LinearFilter;
                 texture.magFilter = THREE.LinearFilter;
                 
-                // Plane geometry: 0.8 units wide, keep aspect ratio
-                const aspect = img.width / img.height;
-                const width = 1.2;
-                const height = width / aspect;
-                
+                // Sprite always faces camera
                 const material = new THREE.SpriteMaterial({ 
                     map: texture,
                     depthTest: true,
@@ -509,9 +530,13 @@
                 const z = r * Math.sin(phi) * Math.sin(theta);
                 
                 sprite.position.set(x, y, z);
+                
+                // Scale based on aspect ratio
+                const aspect = img.width / img.height;
+                const width = 1.2;
+                const height = width / aspect;
                 sprite.scale.set(width, height, 1);
                 
-                // Store name in userData for tooltip later (optional)
                 sprite.userData = { name };
                 
                 landmarkGroup.add(sprite);
@@ -536,7 +561,7 @@
         // --- Animation loop ---
         function animate() {
             requestAnimationFrame(animate);
-            controls.update(); // handles autoRotate if enabled
+            controls.update();
             renderer.render(scene, camera);
         }
         animate();
@@ -546,11 +571,6 @@
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
-        });
-
-        // --- Update coordinates display on mouse move (optional) ---
-        renderer.domElement.addEventListener('mousemove', (event) => {
-            // can add real-time coordinate display on hover if desired
         });
     </script>
 </body>
