@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Sphere, Line, Sprite, useTexture } from '@react-three/drei';
+import { OrbitControls, Sphere, Line, Sprite } from '@react-three/drei'; // removed unused useTexture
 import { createClient } from '@supabase/supabase-js';
 import * as THREE from 'three';
-import { fabric } from 'fabric';
+import fabric from 'fabric'; // ✅ CORRECT: fabric exports a default object
 import { motion, AnimatePresence } from 'framer-motion';
 import { HexColorPicker } from 'react-colorful';
 import { 
@@ -97,9 +97,16 @@ function DrawingPanel() {
     setHistoryIndex(0);
 
     // Save state on change
-    canvas.on('object:added', () => saveHistory());
-    canvas.on('object:modified', () => saveHistory());
-    canvas.on('object:removed', () => saveHistory());
+    const saveHistory = () => {
+      if (!fabricRef.current) return;
+      const state = fabricRef.current.toJSON();
+      setHistory(prev => [...prev.slice(0, historyIndex + 1), state]);
+      setHistoryIndex(prev => prev + 1);
+    };
+
+    canvas.on('object:added', saveHistory);
+    canvas.on('object:modified', saveHistory);
+    canvas.on('object:removed', saveHistory);
 
     return () => {
       canvas.dispose();
@@ -122,17 +129,9 @@ function DrawingPanel() {
     if (brushType === 'spray') brush.density = 20;
   }, [brushType, color, brushSize, isErasing]);
 
-  // Save history state
-  const saveHistory = () => {
-    if (!fabricRef.current) return;
-    const state = fabricRef.current.toJSON();
-    setHistory(prev => [...prev.slice(0, historyIndex + 1), state]);
-    setHistoryIndex(prev => prev + 1);
-  };
-
   // Undo/Redo
   const undo = () => {
-    if (historyIndex <= 0) return;
+    if (historyIndex <= 0 || !fabricRef.current) return;
     fabricRef.current.loadFromJSON(history[historyIndex - 1], () => {
       fabricRef.current.renderAll();
       setHistoryIndex(historyIndex - 1);
@@ -140,41 +139,39 @@ function DrawingPanel() {
   };
 
   const redo = () => {
-    if (historyIndex >= history.length - 1) return;
+    if (historyIndex >= history.length - 1 || !fabricRef.current) return;
     fabricRef.current.loadFromJSON(history[historyIndex + 1], () => {
       fabricRef.current.renderAll();
       setHistoryIndex(historyIndex + 1);
     });
   };
 
-  // Apply filter to selected object or whole canvas
+  // Apply filter to selected object
   const applyFilter = (filterType) => {
     if (!fabricRef.current) return;
     const activeObject = fabricRef.current.getActiveObject();
-    const target = activeObject || fabricRef.current;
-    if (target === fabricRef.current) {
-      // Apply to all objects? For demo, we'll apply to background
-      alert('Filter applied to selection only. Please select an object.');
+    if (!activeObject) {
+      alert('Please select an object first.');
       return;
     }
-    if (!target.filters) target.filters = [];
-    target.filters = []; // clear existing
+    if (!activeObject.filters) activeObject.filters = [];
+    activeObject.filters = []; // clear existing
     switch (filterType) {
       case 'blur':
-        target.filters.push(new fabric.Image.filters.Blur({ blur: 0.5 }));
+        activeObject.filters.push(new fabric.Image.filters.Blur({ blur: 0.5 }));
         break;
       case 'grayscale':
-        target.filters.push(new fabric.Image.filters.Grayscale());
+        activeObject.filters.push(new fabric.Image.filters.Grayscale());
         break;
       case 'brightness':
-        target.filters.push(new fabric.Image.filters.Brightness({ brightness: 0.2 }));
+        activeObject.filters.push(new fabric.Image.filters.Brightness({ brightness: 0.2 }));
         break;
       case 'contrast':
-        target.filters.push(new fabric.Image.filters.Contrast({ contrast: 0.3 }));
+        activeObject.filters.push(new fabric.Image.filters.Contrast({ contrast: 0.3 }));
         break;
       default: break;
     }
-    target.applyFilters();
+    activeObject.applyFilters();
     fabricRef.current.renderAll();
   };
 
@@ -459,8 +456,7 @@ function Earth() {
   const { setDrawingPanel } = useStore();
   const particlesRef = useRef();
 
-  // Particle system that reacts to landmarks (optional)
-  useFrame(({ clock }) => {
+  useFrame(() => {
     if (particlesRef.current) {
       particlesRef.current.rotation.y += 0.0002;
     }
@@ -598,7 +594,7 @@ export default function Home() {
     };
     fetchLandmarks();
 
-    // Optional: real-time subscription
+    // Real-time subscription
     const subscription = supabase
       .channel('landmarks')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'landmarks' }, payload => {
